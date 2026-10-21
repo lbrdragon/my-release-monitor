@@ -38,11 +38,18 @@ jobs:
 
             if [ "$TAG" != "$LAST_TAG" ]; then
               echo "发现新版本，发送通知..."
-              curl -sS -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
+              RESPONSE=$(curl -sS -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
                 -d "title=🔔 $REPO 新版本: $TAG" \
-                -d "desp=版本号: **$TAG**%0A%0A查看详情: https://github.com/$REPO/releases/latest"
-              sed -i "\|^$REPO:|d" last_versions.txt
-              echo "$REPO:$TAG" >> last_versions.txt
+                -d "desp=版本号: **$TAG**%0A%0A查看详情: https://github.com/$REPO/releases/latest")
+              echo "$RESPONSE"
+              CODE=$(echo "$RESPONSE" | jq -r '.code // 1')
+              if [ "$CODE" -eq 0 ]; then
+                sed -i "\|^$REPO:|d" last_versions.txt
+                echo "$REPO:$TAG" >> last_versions.txt
+                echo "通知发送成功，已记录版本。"
+              else
+                echo "通知发送失败（code=$CODE），本次不记录版本，下次运行会重试。"
+              fi
             else
               echo "版本无变化，跳过通知。"
             fi
