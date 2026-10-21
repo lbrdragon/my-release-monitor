@@ -41,7 +41,7 @@ jobs:
               curl -sS -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
                 -d "title=🔔 $REPO 新版本: $TAG" \
                 -d "desp=版本号: **$TAG**%0A%0A查看详情: https://github.com/$REPO/releases/latest"
-              sed -i "/^$REPO:/d" last_versions.txt
+              sed -i "\|^$REPO:|d" last_versions.txt
               echo "$REPO:$TAG" >> last_versions.txt
             else
               echo "版本无变化，跳过通知。"
