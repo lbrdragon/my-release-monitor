@@ -34,7 +34,7 @@ jobs:
             echo "最新版本: $TAG"
             echo "发布时间距今: $DIFF_MIN 分钟"
 
-            if [ "$DIFF_MIN" -le 999999 ]; then
+            if [ "$DIFF_MIN" -le 70 ]; then
               echo "发现新版本，发送通知..."
               curl -sS -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
                 -d "title=🔔 $REPO 新版本: $TAG" \
