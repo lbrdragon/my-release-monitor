@@ -1,8 +1,6 @@
 name: Monitor Releases
 
 on:
-  schedule:
-    - cron: '24 * * * *'
   workflow_dispatch:
 
 jobs:
