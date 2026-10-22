@@ -39,33 +39,65 @@ jobs:
 
             if [ "$TAG" != "$LAST_TAG" ]; then
               echo "发现新版本，加入待通知列表。"
-              UPDATES="${UPDATES}- $REPO : $TAG%0A  https://github.com/$REPO/releases/latest%0A"
+              UPDATES="${UPDATES}- $REPO : $TAG
+  https://github.com/$REPO/releases/latest
+"
               UPDATED_REPOS="${UPDATED_REPOS} $REPO:$TAG"
             else
               echo "版本无变化，跳过。"
             fi
           done
 
-          if [ -n "$UPDATES" ]; then
-            echo "===== 发送合并通知 ====="
-            RESPONSE=$(curl -sS -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
-              -d "title=🔔 Release 更新通知" \
-              -d "desp=$UPDATES")
-            echo "$RESPONSE"
-            CODE=$(echo "$RESPONSE" | jq -r '.code // 1')
-            if [ "$CODE" -eq 0 ]; then
-              for PAIR in $UPDATED_REPOS; do
-                R="${PAIR%%:*}"
-                T="${PAIR#*:}"
-                sed -i "\|^$R:|d" last_versions.txt
-                echo "$R:$T" >> last_versions.txt
-              done
-              echo "通知发送成功，已记录所有新版本。"
-            else
-              echo "通知发送失败（code=$CODE），本次不记录版本，下次运行会重试。"
-            fi
-          else
+          if [ -z "$UPDATES" ]; then
             echo "所有项目版本均无变化，跳过通知。"
+            exit 0
+          fi
+
+          SENT=0
+
+          echo "===== 尝试 WxPusher（主力）====="
+          WX_PAYLOAD=$(jq -n \
+            --arg spt "${{ secrets.WXPUSHER_SPT }}" \
+            --arg content "$UPDATES" \
+            --arg summary "Release 更新通知" \
+            '{spt:$spt, content:$content, summary:$summary, contentType:3}')
+
+          WX_RESPONSE=$(curl -sS -X POST "https://wxpusher.zjiecode.com/api/send/message/simple-push" \
+            -H "Content-Type: application/json" \
+            -d "$WX_PAYLOAD" || echo '{"code":-1}')
+          echo "$WX_RESPONSE"
+          WX_CODE=$(echo "$WX_RESPONSE" | jq -r '.code // -1')
+
+          if [ "$WX_CODE" -eq 1000 ]; then
+            echo "WxPusher 发送成功。"
+            SENT=1
+          else
+            echo "WxPusher 发送失败（code=$WX_CODE），切换 Server酱 备用通道..."
+
+            SC_RESPONSE=$(curl -sS -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
+              --data-urlencode "title=🔔 Release 更新通知" \
+              --data-urlencode "desp=$UPDATES" || echo '{"code":-1}')
+            echo "$SC_RESPONSE"
+            SC_CODE=$(echo "$SC_RESPONSE" | jq -r '.code // -1')
+
+            if [ "$SC_CODE" -eq 0 ]; then
+              echo "Server酱 备用通道发送成功。"
+              SENT=1
+            else
+              echo "Server酱 备用通道也失败（code=$SC_CODE）。"
+            fi
+          fi
+
+          if [ "$SENT" -eq 1 ]; then
+            for PAIR in $UPDATED_REPOS; do
+              R="${PAIR%%:*}"; T="${PAIR#*:}"
+              sed -i "\|^$R:|d" last_versions.txt
+              echo "$R:$T" >> last_versions.txt
+            done
+            echo "通知已送达，已记录所有新版本。"
+          else
+            echo "所有通道均发送失败，本次不记录版本，下次运行会重试。"
+            exit 1
           fi
 
       - name: Save versions
