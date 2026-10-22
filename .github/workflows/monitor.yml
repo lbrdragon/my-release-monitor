@@ -16,7 +16,7 @@ jobs:
 
       - name: Check releases
         run: |
-          REPOS="MohamadOday/iris-gallery Crustack/NotallyX copylee711/twinfile BlackyHawky/Clock"
+          REPOS="MohamadOday/iris-gallery Crustack/NotallyX copylee711/twinfile"
           touch last_versions.txt
           UPDATES=""
           UPDATED_REPOS=""
