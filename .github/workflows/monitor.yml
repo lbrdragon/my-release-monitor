@@ -39,9 +39,8 @@ jobs:
 
             if [ "$TAG" != "$LAST_TAG" ]; then
               echo "发现新版本，加入待通知列表。"
-              UPDATES="${UPDATES}- $REPO : $TAG
-  https://github.com/$REPO/releases/latest
-"
+              printf -v LINE -- '- %s : %s\n  https://github.com/%s/releases/latest\n' "$REPO" "$TAG" "$REPO"
+              UPDATES="${UPDATES}${LINE}"
               UPDATED_REPOS="${UPDATED_REPOS} $REPO:$TAG"
             else
               echo "版本无变化，跳过。"
