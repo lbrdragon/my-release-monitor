@@ -34,7 +34,14 @@ jobs:
               continue
             fi
 
-            LAST_TAG=$(grep "^$REPO:" last_versions.txt | cut -d: -f2)
+            # ===== 临时测试逻辑：强制 Clock 视为无记录 =====
+            if [ "$REPO" = "BlackyHawky/Clock" ]; then
+              LAST_TAG=""
+            else
+              LAST_TAG=$(grep "^$REPO:" last_versions.txt | cut -d: -f2)
+            fi
+            # ==============================================
+
             echo "最新版本: $TAG，上次记录: ${LAST_TAG:-无}"
 
             if [ "$TAG" != "$LAST_TAG" ]; then
@@ -49,55 +56,63 @@ jobs:
 
           if [ -z "$UPDATES" ]; then
             echo "所有项目版本均无变化，跳过通知。"
-            exit 0
+            echo "HAS_UPDATES=false" >> $GITHUB_ENV
+          else
+            echo "HAS_UPDATES=true" >> $GITHUB_ENV
+            {
+              echo "UPDATES<<UPDATES_END"
+              echo "$UPDATES"
+              echo "UPDATES_END"
+            } >> $GITHUB_ENV
+            echo "UPDATED_REPOS=$UPDATED_REPOS" >> $GITHUB_ENV
           fi
 
-          SENT=0
+      - name: Send Email (primary)
+        id: email
+        if: env.HAS_UPDATES == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.qq.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: 🔔 Release 更新通知
+          to: ${{ secrets.MAIL_TO }}
+          from: Release Monitor <${{ secrets.MAIL_USERNAME }}>
+          body: |
+            以下项目有新的 Release 版本：
 
-          echo "===== 尝试 WxPusher（主力）====="
-          WX_PAYLOAD=$(jq -n \
-            --arg spt "${{ secrets.WXPUSHER_SPT }}" \
-            --arg content "$UPDATES" \
-            --arg summary "Release 更新通知" \
-            '{spt:$spt, content:$content, summary:$summary, contentType:3}')
+            ${{ env.UPDATES }}
 
-          WX_RESPONSE=$(curl -sS -X POST "https://wxpusher.zjiecode.com/api/send/message/simple-push" \
-            -H "Content-Type: application/json" \
-            -d "$WX_PAYLOAD" || echo '{"code":-1}')
-          echo "$WX_RESPONSE"
-          WX_CODE=$(echo "$WX_RESPONSE" | jq -r '.code // -1')
-
-          if [ "$WX_CODE" -eq 1000 ]; then
-            echo "WxPusher 发送成功。"
-            SENT=1
+      - name: Send ServerChan (fallback)
+        id: serverchan
+        if: env.HAS_UPDATES == 'true' && steps.email.outcome == 'failure'
+        continue-on-error: true
+        run: |
+          echo "邮件发送失败，切换 Server酱 备用通道..."
+          SC_RESPONSE=$(curl -sS -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
+            --data-urlencode "title=🔔 Release 更新通知" \
+            --data-urlencode "desp=${{ env.UPDATES }}" || echo '{"code":-1}')
+          echo "$SC_RESPONSE"
+          SC_CODE=$(echo "$SC_RESPONSE" | jq -r '.code // -1')
+          if [ "$SC_CODE" -eq 0 ]; then
+            echo "Server酱 发送成功。"
           else
-            echo "WxPusher 发送失败（code=$WX_CODE），切换 Server酱 备用通道..."
-
-            SC_RESPONSE=$(curl -sS -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
-              --data-urlencode "title=🔔 Release 更新通知" \
-              --data-urlencode "desp=$UPDATES" || echo '{"code":-1}')
-            echo "$SC_RESPONSE"
-            SC_CODE=$(echo "$SC_RESPONSE" | jq -r '.code // -1')
-
-            if [ "$SC_CODE" -eq 0 ]; then
-              echo "Server酱 备用通道发送成功。"
-              SENT=1
-            else
-              echo "Server酱 备用通道也失败（code=$SC_CODE）。"
-            fi
-          fi
-
-          if [ "$SENT" -eq 1 ]; then
-            for PAIR in $UPDATED_REPOS; do
-              R="${PAIR%%:*}"; T="${PAIR#*:}"
-              sed -i "\|^$R:|d" last_versions.txt
-              echo "$R:$T" >> last_versions.txt
-            done
-            echo "通知已送达，已记录所有新版本。"
-          else
-            echo "所有通道均发送失败，本次不记录版本，下次运行会重试。"
+            echo "Server酱 也失败（code=$SC_CODE）。"
             exit 1
           fi
+
+      - name: Record versions
+        if: env.HAS_UPDATES == 'true' && (steps.email.outcome == 'success' || steps.serverchan.outcome == 'success')
+        run: |
+          for PAIR in ${{ env.UPDATED_REPOS }}; do
+            R="${PAIR%%:*}"; T="${PAIR#*:}"
+            sed -i "\|^$R:|d" last_versions.txt
+            echo "$R:$T" >> last_versions.txt
+          done
+          echo "通知已送达，已记录所有新版本。"
 
       - name: Save versions
         if: always()
